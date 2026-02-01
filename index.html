@@ -111,18 +111,29 @@ window.onload = () => {
 };
 
 /* ===== VALIDAR ACESSO INICIAL ===== */
-function validarAcessoInicial(){
+function validarAcessoInicial() {
   fetch(`${API_URL}?action=validateAccess&telefone=${encodeURIComponent(telefoneCliente)}`)
-    .then(r=>r.json())
-    .then(data=>{
-      if(data.authorized && data.status === 'ATIVO'){
-        entrarNaSala();
-        iniciarMonitor();
-      }else{
+    .then(r => r.json())
+    .then(data => {
+      console.log('validateAccess retornou:', data); // debug - pode remover depois
+
+      const status = (data.status || '').trim().toUpperCase();
+
+      // Só derruba se for EXPLICITAMENTE 'REMOVIDO' (ou algo que indique remoção pelo admin)
+      if (status === 'REMOVIDO') {
         derrubarSessao();
+        return;
       }
+
+      // Qualquer outro status (ATIVO, PENDENTE, ou até vazio) → entra ou continua na sala
+      entrarNaSala();
+      iniciarMonitor();
     })
-    .catch(()=>derrubarSessao());
+    .catch(err => {
+      console.error('Erro ao validar acesso inicial:', err);
+      // Em caso de erro de rede, não derruba imediatamente — tenta novamente depois
+      setTimeout(validarAcessoInicial, 10000);
+    });
 }
 
 /* ===== GERAR PIX ===== */
@@ -148,13 +159,23 @@ function gerarPix(){
   })
   .then(r=>r.json())
   .then(data=>{
+    if (data.success === false) {
+      status.innerText = data.message || 'Erro ao gerar PIX';
+      return;
+    }
+
     document.getElementById('qr').innerHTML = `
       <img src="data:image/png;base64,${data.qrCodeBase64}">
       <div class="pix-box">
-        <input value="${data.pixKey}" readonly>
+        <input value="${data.pixKey}" readonly onclick="this.select()">
       </div>
     `;
+    status.innerText = 'Aguardando pagamento...';
     verificarPagamento(data.paymentId);
+  })
+  .catch(err => {
+    status.innerText = 'Erro ao gerar PIX';
+    console.error(err);
   });
 }
 
@@ -167,26 +188,21 @@ function verificarPagamento(paymentId){
     })
     .then(r=>r.json())
     .then(data=>{
-      if(data.status === 'PAID'){
+      if(data.status === 'PAID' || data.status === 'approved'){
         clearInterval(check);
-
-        // Salva autenticação
         localStorage.setItem('bolao_auth', JSON.stringify({
           nome:nomeCliente,
           telefone:telefoneCliente
         }));
-
-        // Toca som de sucesso
         document.getElementById('successSound').play();
-
-        // Dá um pequeno delay para a planilha "respirar" e propagar o 'ATIVO'
+        document.getElementById('status').innerText = 'Pagamento confirmado! Entrando na sala...';
+        
+        // Dá um pequeno delay e entra direto (já validamos no monitor depois)
         setTimeout(() => {
-          validarAcessoInicial();
-        }, 3000);   // 3 segundos de espera – pode testar com 2000 ou 4000
+          entrarNaSala();
+          iniciarMonitor();
+        }, 2000);
       }
-    })
-    .catch(err => {
-      console.error('Erro na verificação:', err);
     });
   }, 5000);
 }
@@ -211,16 +227,25 @@ function iniciarMonitor(){
     fetch(`${API_URL}?action=validateAccess&telefone=${encodeURIComponent(telefoneCliente)}`)
       .then(r=>r.json())
       .then(data=>{
-        if(!data.authorized || data.status !== 'ATIVO'){
+        console.log('Monitor check:', data); // debug
+
+        const status = (data.status || '').trim().toUpperCase();
+
+        // Só derruba se for explicitamente REMOVIDO
+        if (status === 'REMOVIDO') {
           derrubarSessao();
         }
+        // Outros status: continua na sala (mesmo se for PENDENTE ou vazio)
       })
-      .catch(()=>derrubarSessao());
-  },5000);
+      .catch(()=> {
+        // Em erro de rede, não derruba — continua tentando
+      });
+  }, 10000); // 10 segundos
 }
 
 /* ===== DERRUBAR ===== */
 function derrubarSessao(){
+  clearInterval(monitor);
   localStorage.removeItem('bolao_auth');
   alert('🚫 Seu acesso foi removido pelo administrador.');
   location.reload();
@@ -233,11 +258,15 @@ function carregarParticipantes(){
   .then(data=>{
     const ul = document.getElementById('listaParticipantes');
     ul.innerHTML='';
-    data.participantes.forEach(p=>{
-      const li=document.createElement('li');
-      li.textContent=p.nome;
-      ul.appendChild(li);
-    });
+    if (data.participantes && data.participantes.length > 0) {
+      data.participantes.forEach(p=>{
+        const li=document.createElement('li');
+        li.textContent=p.nome;
+        ul.appendChild(li);
+      });
+    } else {
+      ul.innerHTML = '<li>Nenhum participante ainda</li>';
+    }
   });
 }
 
@@ -248,15 +277,18 @@ function carregarPalpites(){
   .then(data=>{
     const ul=document.getElementById('listaPalpites');
     ul.innerHTML='';
-    data.palpites.forEach(p=>{
-      const li=document.createElement('li');
-      li.textContent = `${p.nome}: ${p.numeros}`;
-      ul.appendChild(li);
-    });
+    if (data.palpites && data.palpites.length > 0) {
+      data.palpites.forEach(p=>{
+        const li=document.createElement('li');
+        li.textContent = `${p.nome}: ${p.numeros}`;
+        ul.appendChild(li);
+      });
+    } else {
+      ul.innerHTML = '<li>Aguardando palpites...</li>';
+    }
   });
 }
 </script>
 
 </body>
 </html>
-
