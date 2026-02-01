@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Bolão Loteria Federal</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body{
+  margin:0;
+  font-family:Segoe UI,Arial,sans-serif;
+  background:linear-gradient(135deg,#0f2027,#203a43,#2c5364);
+  color:#fff;
+}
+.container{
+  max-width:360px;
+  margin:40px auto;
+  background:#111;
+  padding:22px;
+  border-radius:14px;
+  text-align:center;
+}
+input,button{
+  width:100%;
+  padding:12px;
+  margin-top:10px;
+  border-radius:8px;
+  border:none;
+  font-size:15px;
+}
+input{background:#1e1e1e;color:#fff}
+button{background:#00e676;font-weight:bold;cursor:pointer}
+.status{margin-top:10px}
+.qr img{width:220px;margin-top:10px}
+.pix-box{display:flex;gap:6px;margin-top:8px}
+.pix-box input{flex:1;background:#1e1e1e;color:#0f0;font-size:13px}
+#countdown{margin-top:10px;font-weight:bold;color:#ffd54f}
+.checkmark{
+  font-size:56px;
+  color:#00e676;
+  animation:pop .6s ease
+}
+@keyframes pop{
+  0%{transform:scale(0);opacity:0}
+  80%{transform:scale(1.2)}
+  100%{transform:scale(1);opacity:1}
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+  <h2>🎟️ Bolão Loteria Federal</h2>
+
+  <input id="nome" placeholder="Seu nome completo">
+  <input id="telefone" placeholder="Telefone / WhatsApp">
+
+  <button onclick="gerarPix()">GERAR PIX</button>
+
+  <div class="status" id="status"></div>
+  <div class="qr" id="qr"></div>
+  <div id="countdown"></div>
+
+  <div id="approved" style="display:none">
+    <div class="checkmark">✔</div>
+    <div>Pagamento aprovado!</div>
+  </div>
+</div>
+
+<audio id="successSound">
+  <source src="https://cdn.pixabay.com/audio/2022/03/15/audio_4b87d3b3f5.mp3">
+</audio>
+
+<script>
+const API_URL='https://script.google.com/macros/s/AKfycbyoEzMAJPNQ6fF38lvWAjDdKeLuMHIq88sIJUfRZNPL2jLgi7dQjJbznn2eh4ArInr2/exec';
+
+let paymentId=null;
+let tempo=300;
+let timer=null;
+
+/* ===== RESTAURAR PIX AO CARREGAR ===== */
+window.onload=()=>{
+  const saved=JSON.parse(localStorage.getItem('pixData'));
+  if(!saved) return;
+
+  const agora=Math.floor(Date.now()/1000);
+  tempo=saved.tempo-(agora-saved.timestamp);
+
+  if(tempo<=0){
+    localStorage.removeItem('pixData');
+    return;
+  }
+
+  paymentId=saved.paymentId;
+  document.getElementById('status').innerText='⏳ Aguardando pagamento...';
+
+  document.getElementById('qr').innerHTML=`
+    <img src="data:image/png;base64,${saved.qr}">
+    <div class="pix-box">
+      <input id="pixKeyInput" value="${saved.pix}" readonly>
+      <button onclick="copiarPix()">📋</button>
+    </div>
+  `;
+
+  iniciarContador();
+  iniciarVerificacao();
+};
+
+/* ===== GERAR PIX ===== */
+function gerarPix(){
+  const nome=document.getElementById('nome').value.trim();
+  const telefone=document.getElementById('telefone').value.trim();
+  const status=document.getElementById('status');
+
+  if(!nome||!telefone){
+    status.innerText='Preencha todos os dados';
+    return;
+  }
+
+  status.innerText='Gerando Pix...';
+
+  fetch(API_URL,{
+    method:'POST',
+    body:JSON.stringify({action:'createPayment',nome,telefone})
+  })
+  .then(r=>r.json())
+  .then(data=>{
+    if(!data.success){
+      status.innerText=data.message;
+      return;
+    }
+
+    paymentId=data.paymentId;
+    tempo=300;
+
+    localStorage.setItem('pixData',JSON.stringify({
+      paymentId,
+      pix:data.pixKey,
+      qr:data.qrCodeBase64,
+      tempo,
+      timestamp:Math.floor(Date.now()/1000)
+    }));
+
+    document.getElementById('qr').innerHTML=`
+      <img src="data:image/png;base64,${data.qrCodeBase64}">
+      <div class="pix-box">
+        <input id="pixKeyInput" value="${data.pixKey}" readonly>
+        <button onclick="copiarPix()">📋</button>
+      </div>
+    `;
+
+    setTimeout(copiarPix,500);
+    status.innerText='⏳ Aguardando pagamento...';
+
+    iniciarContador();
+    iniciarVerificacao();
+  });
+}
+
+/* ===== CONTADOR ===== */
+function iniciarContador(){
+  clearInterval(timer);
+  timer=setInterval(()=>{
+    const min=String(Math.floor(tempo/60)).padStart(2,'0');
+    const sec=String(tempo%60).padStart(2,'0');
+    document.getElementById('countdown').innerText=`⏳ Tempo restante: ${min}:${sec}`;
+
+    if(tempo<=0){
+      clearInterval(timer);
+      localStorage.removeItem('pixData');
+      document.getElementById('countdown').innerText='❌ Pix expirado';
+    }
+    tempo--;
+  },1000);
+}
+
+/* ===== VERIFICAR PAGAMENTO ===== */
+function iniciarVerificacao(){
+  const check=setInterval(()=>{
+    fetch(API_URL,{
+      method:'POST',
+      body:JSON.stringify({action:'checkPayment',paymentId})
+    })
+    .then(r=>r.json())
+    .then(data=>{
+      if(data.status==='PAID'){
+        clearInterval(check);
+        clearInterval(timer);
+        localStorage.removeItem('pixData');
+        aprovado();
+      }
+    });
+  },5000);
+}
+
+/* ===== APROVADO ===== */
+function aprovado(){
+  document.getElementById('countdown').style.display='none';
+  document.getElementById('approved').style.display='block';
+  document.getElementById('successSound').play();
+  document.getElementById('status').innerText='🎉 Pagamento confirmado!';
+}
+
+/* ===== COPIAR PIX ===== */
+function copiarPix(){
+  const input=document.getElementById('pixKeyInput');
+  input.select();
+  navigator.clipboard.writeText(input.value);
+}
+</script>
+
+</body>
+</html>
