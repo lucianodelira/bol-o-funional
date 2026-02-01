@@ -40,7 +40,6 @@ button{background:#00e676;color:#000;font-weight:bold;cursor:pointer}
 .qr img{width:220px;margin-top:10px}
 .pix-box{display:flex;gap:6px;margin-top:8px}
 .pix-box input{flex:1;background:#1e1e1e;color:#0f0;font-size:13px}
-
 .card{
   background:#121212;
   border-radius:12px;
@@ -101,18 +100,32 @@ let nomeCliente = '';
 let telefoneCliente = '';
 let monitor = null;
 
-/* ================= AUTO LOGIN (NÃO BLOQUEIA) ================= */
+/* ===== AUTO LOGIN COM VALIDAÇÃO REAL ===== */
 window.onload = () => {
   const auth = JSON.parse(localStorage.getItem('bolao_auth'));
   if(auth){
     nomeCliente = auth.nome;
     telefoneCliente = auth.telefone;
-    entrarNaSala();
-    iniciarMonitor();
+    validarAcessoInicial();
   }
 };
 
-/* ================= GERAR PIX ================= */
+/* ===== VALIDAR ACESSO INICIAL ===== */
+function validarAcessoInicial(){
+  fetch(`${API_URL}?action=validateAccess&telefone=${encodeURIComponent(telefoneCliente)}`)
+    .then(r=>r.json())
+    .then(data=>{
+      if(data.authorized && data.status === 'ATIVO'){
+        entrarNaSala();
+        iniciarMonitor();
+      }else{
+        derrubarSessao();
+      }
+    })
+    .catch(()=>derrubarSessao());
+}
+
+/* ===== GERAR PIX ===== */
 function gerarPix(){
   nomeCliente = document.getElementById('nome').value.trim();
   telefoneCliente = document.getElementById('telefone').value.trim();
@@ -145,7 +158,7 @@ function gerarPix(){
   });
 }
 
-/* ================= VERIFICAR PAGAMENTO ================= */
+/* ===== VERIFICAR PAGAMENTO ===== */
 function verificarPagamento(paymentId){
   const check = setInterval(()=>{
     fetch(API_URL,{
@@ -163,14 +176,13 @@ function verificarPagamento(paymentId){
         }));
 
         document.getElementById('successSound').play();
-        entrarNaSala();
-        iniciarMonitor();
+        validarAcessoInicial();
       }
     });
   },5000);
 }
 
-/* ================= ENTRAR NA SALA ================= */
+/* ===== ENTRAR NA SALA ===== */
 function entrarNaSala(){
   document.getElementById('loginArea').classList.add('hidden');
   document.getElementById('salaBolao').classList.remove('hidden');
@@ -182,35 +194,30 @@ function entrarNaSala(){
   carregarPalpites();
 }
 
-/* ================= MONITORAMENTO REAL ================= */
+/* ===== MONITORAMENTO REAL ===== */
 function iniciarMonitor(){
   if(monitor) clearInterval(monitor);
-
-  let jaFoiAtivo = false;
 
   monitor = setInterval(()=>{
     fetch(`${API_URL}?action=validateAccess&telefone=${encodeURIComponent(telefoneCliente)}`)
       .then(r=>r.json())
       .then(data=>{
-        if(data.status === 'ATIVO'){
-          jaFoiAtivo = true;
-        }
-
-        if(jaFoiAtivo && data.status !== 'ATIVO'){
+        if(!data.authorized || data.status !== 'ATIVO'){
           derrubarSessao();
         }
-      });
-  },10000);
+      })
+      .catch(()=>derrubarSessao());
+  },5000);
 }
 
-/* ================= DERRUBAR ================= */
+/* ===== DERRUBAR ===== */
 function derrubarSessao(){
   localStorage.removeItem('bolao_auth');
   alert('🚫 Seu acesso foi removido pelo administrador.');
   location.reload();
 }
 
-/* ================= PARTICIPANTES ================= */
+/* ===== PARTICIPANTES ===== */
 function carregarParticipantes(){
   fetch(API_URL+'?action=infoBolao')
   .then(r=>r.json())
@@ -225,7 +232,7 @@ function carregarParticipantes(){
   });
 }
 
-/* ================= PALPITES ================= */
+/* ===== PALPITES ===== */
 function carregarPalpites(){
   fetch(API_URL+'?action=getPalpites')
   .then(r=>r.json())
@@ -243,3 +250,4 @@ function carregarPalpites(){
 
 </body>
 </html>
+
