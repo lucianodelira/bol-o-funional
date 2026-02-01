@@ -22,7 +22,7 @@ body{
   text-align:center;
 }
 .sala{
-  max-width:800px;
+  max-width:900px;
   margin:auto;
   padding:20px;
 }
@@ -40,18 +40,6 @@ button{background:#00e676;color:#000;font-weight:bold;cursor:pointer}
 .qr img{width:220px;margin-top:10px}
 .pix-box{display:flex;gap:6px;margin-top:8px}
 .pix-box input{flex:1;background:#1e1e1e;color:#0f0;font-size:13px}
-#countdown{margin-top:10px;font-weight:bold;color:#ffd54f}
-
-.checkmark{
-  font-size:60px;
-  color:#00e676;
-  animation:pop .6s ease;
-}
-@keyframes pop{
-  0%{transform:scale(0);opacity:0}
-  80%{transform:scale(1.2)}
-  100%{transform:scale(1);opacity:1}
-}
 
 .card{
   background:#121212;
@@ -65,6 +53,16 @@ ul li{
   border-radius:6px;
   margin-bottom:6px;
 }
+.checkmark{
+  font-size:60px;
+  color:#00e676;
+  animation:pop .6s ease;
+}
+@keyframes pop{
+  0%{transform:scale(0);opacity:0}
+  80%{transform:scale(1.2)}
+  100%{transform:scale(1);opacity:1}
+}
 </style>
 </head>
 
@@ -73,20 +71,11 @@ ul li{
 <!-- LOGIN / PIX -->
 <div class="container" id="loginArea">
   <h2>🎟️ Bolão Loteria Federal</h2>
-
   <input id="nome" placeholder="Seu nome completo">
   <input id="telefone" placeholder="Telefone / WhatsApp">
-
   <button onclick="gerarPix()">GERAR PIX</button>
-
   <div class="status" id="status"></div>
   <div class="qr" id="qr"></div>
-  <div id="countdown"></div>
-
-  <div id="approved" class="hidden">
-    <div class="checkmark">✔</div>
-    <div>Pagamento aprovado!</div>
-  </div>
 </div>
 
 <!-- SALA -->
@@ -103,6 +92,11 @@ ul li{
     <h3>👥 Participantes</h3>
     <ul id="listaParticipantes"></ul>
   </div>
+
+  <div class="card">
+    <h3>🎯 Palpites do Bolão</h3>
+    <ul id="listaPalpites"></ul>
+  </div>
 </div>
 
 <audio id="successSound">
@@ -112,49 +106,15 @@ ul li{
 <script>
 const API_URL='https://script.google.com/macros/s/AKfycbyoEzMAJPNQ6fF38lvWAjDdKeLuMHIq88sIJUfRZNPL2jLgi7dQjJbznn2eh4ArInr2/exec';
 
-let paymentId=null;
-let tempo=300;
-let timer=null;
 let nomeCliente='';
 let telefoneCliente='';
 
-/* ===== RESTAURAR AO CARREGAR ===== */
+/* ===== AUTO LOGIN REAL ===== */
 window.onload=()=>{
-  const saved=JSON.parse(localStorage.getItem('pixData'));
   const auth=JSON.parse(localStorage.getItem('bolao_auth'));
-
-  if(auth){
-    nomeCliente=auth.nome;
-    telefoneCliente=auth.telefone;
+  if(auth && auth.expires > Date.now()){
+    entrarNaSala(auth.nome, auth.telefone);
   }
-
-  if(!saved) return;
-
-  paymentId=saved.paymentId;
-  nomeCliente=saved.nome;
-  telefoneCliente=saved.telefone;
-
-  document.getElementById('nome').value=nomeCliente;
-  document.getElementById('telefone').value=telefoneCliente;
-
-  const agora=Math.floor(Date.now()/1000);
-  tempo=saved.tempo-(agora-saved.timestamp);
-  if(tempo<=0){
-    localStorage.removeItem('pixData');
-    return;
-  }
-
-  document.getElementById('status').innerText='⏳ Aguardando pagamento...';
-  document.getElementById('qr').innerHTML=`
-    <img src="data:image/png;base64,${saved.qr}">
-    <div class="pix-box">
-      <input id="pixKeyInput" value="${saved.pix}" readonly>
-      <button onclick="copiarPix()">📋</button>
-    </div>
-  `;
-
-  iniciarContador();
-  iniciarVerificacao();
 };
 
 /* ===== GERAR PIX ===== */
@@ -176,46 +136,19 @@ function gerarPix(){
   })
   .then(r=>r.json())
   .then(data=>{
-    paymentId=data.paymentId;
-    tempo=300;
-
-    localStorage.setItem('pixData',JSON.stringify({
-      paymentId,
-      nome:nomeCliente,
-      telefone:telefoneCliente,
-      pix:data.pixKey,
-      qr:data.qrCodeBase64,
-      tempo,
-      timestamp:Math.floor(Date.now()/1000)
-    }));
-
     document.getElementById('qr').innerHTML=`
       <img src="data:image/png;base64,${data.qrCodeBase64}">
       <div class="pix-box">
-        <input id="pixKeyInput" value="${data.pixKey}" readonly>
-        <button onclick="copiarPix()">📋</button>
+        <input value="${data.pixKey}" readonly>
       </div>
     `;
 
-    status.innerText='⏳ Aguardando pagamento...';
-    iniciarContador();
-    iniciarVerificacao();
+    verificarPagamento(data.paymentId);
   });
 }
 
-/* ===== CONTADOR ===== */
-function iniciarContador(){
-  clearInterval(timer);
-  timer=setInterval(()=>{
-    const min=String(Math.floor(tempo/60)).padStart(2,'0');
-    const sec=String(tempo%60).padStart(2,'0');
-    document.getElementById('countdown').innerText=`⏳ ${min}:${sec}`;
-    tempo--;
-  },1000);
-}
-
 /* ===== VERIFICAR PAGAMENTO ===== */
-function iniciarVerificacao(){
+function verificarPagamento(paymentId){
   const check=setInterval(()=>{
     fetch(API_URL,{
       method:'POST',
@@ -225,8 +158,6 @@ function iniciarVerificacao(){
     .then(data=>{
       if(data.status==='PAID'){
         clearInterval(check);
-        clearInterval(timer);
-        localStorage.removeItem('pixData');
 
         localStorage.setItem('bolao_auth',JSON.stringify({
           nome:nomeCliente,
@@ -234,24 +165,18 @@ function iniciarVerificacao(){
           expires:Date.now()+86400000
         }));
 
-        aprovado();
+        document.getElementById('successSound').play();
+        entrarNaSala(nomeCliente,telefoneCliente);
       }
     });
   },5000);
 }
 
-/* ===== APROVADO ===== */
-function aprovado(){
-  document.getElementById('successSound').play();
-  document.getElementById('approved').classList.remove('hidden');
-
-  setTimeout(()=>{
-    entrarNaSala(nomeCliente,telefoneCliente);
-  },1500);
-}
-
 /* ===== SALA ===== */
 function entrarNaSala(nome,telefone){
+  nomeCliente=nome;
+  telefoneCliente=telefone;
+
   document.getElementById('loginArea').classList.add('hidden');
   document.getElementById('salaBolao').classList.remove('hidden');
 
@@ -259,8 +184,10 @@ function entrarNaSala(nome,telefone){
   document.getElementById('meuTelefone').innerText=telefone;
 
   carregarParticipantes();
+  carregarPalpites();
 }
 
+/* ===== PARTICIPANTES ===== */
 function carregarParticipantes(){
   fetch(API_URL+'?action=infoBolao')
   .then(r=>r.json())
@@ -275,10 +202,19 @@ function carregarParticipantes(){
   });
 }
 
-function copiarPix(){
-  const input=document.getElementById('pixKeyInput');
-  input.select();
-  navigator.clipboard.writeText(input.value);
+/* ===== PALPITES ===== */
+function carregarPalpites(){
+  fetch(API_URL+'?action=getPalpites')
+  .then(r=>r.json())
+  .then(data=>{
+    const ul=document.getElementById('listaPalpites');
+    ul.innerHTML='';
+    data.palpites.forEach(p=>{
+      const li=document.createElement('li');
+      li.textContent=`${p.nome}: ${p.numeros}`;
+      ul.appendChild(li);
+    });
+  });
 }
 </script>
 
