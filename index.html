@@ -95,32 +95,35 @@ ul li{
 </audio>
 
 <script>
-const API_URL='https://script.google.com/macros/s/AKfycbyoEzMAJPNQ6fF38lvWAjDdKeLuMHIq88sIJUfRZNPL2jLgi7dQjJbznn2eh4ArInr2/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbyoEzMAJPNQ6fF38lvWAjDdKeLuMHIq88sIJUfRZNPL2jLgi7dQjJbznn2eh4ArInr2/exec';
 
-let nomeCliente='';
-let telefoneCliente='';
-let monitor=null;
+let nomeCliente = '';
+let telefoneCliente = '';
+let monitor = null;
 
-/* ===== AUTO LOGIN COM VALIDAÇÃO REAL ===== */
-window.onload=()=>{
-  const auth=JSON.parse(localStorage.getItem('bolao_auth'));
+/* ================= AUTO LOGIN (NÃO BLOQUEIA) ================= */
+window.onload = () => {
+  const auth = JSON.parse(localStorage.getItem('bolao_auth'));
   if(auth){
-    validarAcessoPlanilha(auth.telefone);
+    nomeCliente = auth.nome;
+    telefoneCliente = auth.telefone;
+    entrarNaSala();
+    iniciarMonitor();
   }
 };
 
-/* ===== GERAR PIX ===== */
+/* ================= GERAR PIX ================= */
 function gerarPix(){
-  nomeCliente=document.getElementById('nome').value.trim();
-  telefoneCliente=document.getElementById('telefone').value.trim();
-  const status=document.getElementById('status');
+  nomeCliente = document.getElementById('nome').value.trim();
+  telefoneCliente = document.getElementById('telefone').value.trim();
+  const status = document.getElementById('status');
 
-  if(!nomeCliente||!telefoneCliente){
-    status.innerText='Preencha todos os dados';
+  if(!nomeCliente || !telefoneCliente){
+    status.innerText = 'Preencha todos os dados';
     return;
   }
 
-  status.innerText='Gerando Pix...';
+  status.innerText = 'Gerando Pix...';
 
   fetch(API_URL,{
     method:'POST',
@@ -132,7 +135,7 @@ function gerarPix(){
   })
   .then(r=>r.json())
   .then(data=>{
-    document.getElementById('qr').innerHTML=`
+    document.getElementById('qr').innerHTML = `
       <img src="data:image/png;base64,${data.qrCodeBase64}">
       <div class="pix-box">
         <input value="${data.pixKey}" readonly>
@@ -142,89 +145,77 @@ function gerarPix(){
   });
 }
 
-/* ===== VERIFICAR PAGAMENTO ===== */
+/* ================= VERIFICAR PAGAMENTO ================= */
 function verificarPagamento(paymentId){
-  const check=setInterval(()=>{
+  const check = setInterval(()=>{
     fetch(API_URL,{
       method:'POST',
       body:JSON.stringify({action:'checkPayment',paymentId})
     })
     .then(r=>r.json())
     .then(data=>{
-      if(data.status==='PAID'){
+      if(data.status === 'PAID'){
         clearInterval(check);
 
-        localStorage.setItem('bolao_auth',JSON.stringify({
+        localStorage.setItem('bolao_auth', JSON.stringify({
           nome:nomeCliente,
           telefone:telefoneCliente
         }));
 
         document.getElementById('successSound').play();
-        validarAcessoPlanilha(telefoneCliente);
+        entrarNaSala();
+        iniciarMonitor();
       }
     });
   },5000);
 }
 
-/* ===== VALIDAR ACESSO NA PLANILHA ===== */
-function validarAcessoPlanilha(telefone){
-  fetch(`${API_URL}?action=validateAccess&telefone=${encodeURIComponent(telefone)}`)
-  .then(r=>r.json())
-  .then(data=>{
-    if(data.authorized){
-      entrarNaSala();
-      iniciarMonitor();
-    }else{
-      derrubarSessao();
-    }
-  })
-  .catch(()=>derrubarSessao());
-}
-
-/* ===== ENTRAR NA SALA ===== */
+/* ================= ENTRAR NA SALA ================= */
 function entrarNaSala(){
   document.getElementById('loginArea').classList.add('hidden');
   document.getElementById('salaBolao').classList.remove('hidden');
 
-  const auth=JSON.parse(localStorage.getItem('bolao_auth'));
-  nomeCliente=auth.nome || '';
-  telefoneCliente=auth.telefone;
-
-  document.getElementById('meuNome').innerText=nomeCliente;
-  document.getElementById('meuTelefone').innerText=telefoneCliente;
+  document.getElementById('meuNome').innerText = nomeCliente;
+  document.getElementById('meuTelefone').innerText = telefoneCliente;
 
   carregarParticipantes();
   carregarPalpites();
 }
 
-/* ===== MONITOR DE ACESSO ===== */
+/* ================= MONITORAMENTO REAL ================= */
 function iniciarMonitor(){
   if(monitor) clearInterval(monitor);
 
-  monitor=setInterval(()=>{
+  let jaFoiAtivo = false;
+
+  monitor = setInterval(()=>{
     fetch(`${API_URL}?action=validateAccess&telefone=${encodeURIComponent(telefoneCliente)}`)
-    .then(r=>r.json())
-    .then(data=>{
-      if(!data.authorized){
-        derrubarSessao();
-      }
-    });
+      .then(r=>r.json())
+      .then(data=>{
+        if(data.status === 'ATIVO'){
+          jaFoiAtivo = true;
+        }
+
+        if(jaFoiAtivo && data.status !== 'ATIVO'){
+          derrubarSessao();
+        }
+      });
   },10000);
 }
 
-/* ===== DERRUBAR SESSÃO ===== */
+/* ================= DERRUBAR ================= */
 function derrubarSessao(){
   localStorage.removeItem('bolao_auth');
-  alert('🚫 Seu acesso ao bolão foi removido pelo administrador.');
+  alert('🚫 Seu acesso foi removido pelo administrador.');
   location.reload();
 }
 
-/* ===== PARTICIPANTES ===== */
+/* ================= PARTICIPANTES ================= */
 function carregarParticipantes(){
   fetch(API_URL+'?action=infoBolao')
   .then(r=>r.json())
   .then(data=>{
-    const ul=document.getElementById('listaParticipantes');
+    const ul = document.getElementById('listaParticipantes');
     ul.innerHTML='';
     data.participantes.forEach(p=>{
       const li=document.createElement('li');
@@ -234,7 +225,7 @@ function carregarParticipantes(){
   });
 }
 
-/* ===== PALPITES ===== */
+/* ================= PALPITES ================= */
 function carregarPalpites(){
   fetch(API_URL+'?action=getPalpites')
   .then(r=>r.json())
@@ -243,7 +234,7 @@ function carregarPalpites(){
     ul.innerHTML='';
     data.palpites.forEach(p=>{
       const li=document.createElement('li');
-      li.textContent=`${p.nome}: ${p.numeros}`;
+      li.textContent = `${p.nome}: ${p.numeros}`;
       ul.appendChild(li);
     });
   });
