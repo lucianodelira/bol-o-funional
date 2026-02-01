@@ -47,21 +47,12 @@ button{background:#00e676;color:#000;font-weight:bold;cursor:pointer}
   padding:16px;
   margin-bottom:15px;
 }
+ul{padding:0;list-style:none}
 ul li{
   background:#1e1e1e;
   padding:8px;
   border-radius:6px;
   margin-bottom:6px;
-}
-.checkmark{
-  font-size:60px;
-  color:#00e676;
-  animation:pop .6s ease;
-}
-@keyframes pop{
-  0%{transform:scale(0);opacity:0}
-  80%{transform:scale(1.2)}
-  100%{transform:scale(1);opacity:1}
 }
 </style>
 </head>
@@ -108,12 +99,13 @@ const API_URL='https://script.google.com/macros/s/AKfycbyoEzMAJPNQ6fF38lvWAjDdKe
 
 let nomeCliente='';
 let telefoneCliente='';
+let monitor=null;
 
-/* ===== AUTO LOGIN REAL ===== */
+/* ===== AUTO LOGIN COM VALIDAÇÃO REAL ===== */
 window.onload=()=>{
   const auth=JSON.parse(localStorage.getItem('bolao_auth'));
-  if(auth && auth.expires > Date.now()){
-    entrarNaSala(auth.nome, auth.telefone);
+  if(auth){
+    validarAcessoPlanilha(auth.telefone);
   }
 };
 
@@ -132,7 +124,11 @@ function gerarPix(){
 
   fetch(API_URL,{
     method:'POST',
-    body:JSON.stringify({action:'createPayment',nome:nomeCliente,telefone:telefoneCliente})
+    body:JSON.stringify({
+      action:'createPayment',
+      nome:nomeCliente,
+      telefone:telefoneCliente
+    })
   })
   .then(r=>r.json())
   .then(data=>{
@@ -142,7 +138,6 @@ function gerarPix(){
         <input value="${data.pixKey}" readonly>
       </div>
     `;
-
     verificarPagamento(data.paymentId);
   });
 }
@@ -161,30 +156,67 @@ function verificarPagamento(paymentId){
 
         localStorage.setItem('bolao_auth',JSON.stringify({
           nome:nomeCliente,
-          telefone:telefoneCliente,
-          expires:Date.now()+86400000
+          telefone:telefoneCliente
         }));
 
         document.getElementById('successSound').play();
-        entrarNaSala(nomeCliente,telefoneCliente);
+        validarAcessoPlanilha(telefoneCliente);
       }
     });
   },5000);
 }
 
-/* ===== SALA ===== */
-function entrarNaSala(nome,telefone){
-  nomeCliente=nome;
-  telefoneCliente=telefone;
+/* ===== VALIDAR ACESSO NA PLANILHA ===== */
+function validarAcessoPlanilha(telefone){
+  fetch(`${API_URL}?action=validateAccess&telefone=${encodeURIComponent(telefone)}`)
+  .then(r=>r.json())
+  .then(data=>{
+    if(data.authorized){
+      entrarNaSala();
+      iniciarMonitor();
+    }else{
+      derrubarSessao();
+    }
+  })
+  .catch(()=>derrubarSessao());
+}
 
+/* ===== ENTRAR NA SALA ===== */
+function entrarNaSala(){
   document.getElementById('loginArea').classList.add('hidden');
   document.getElementById('salaBolao').classList.remove('hidden');
 
-  document.getElementById('meuNome').innerText=nome;
-  document.getElementById('meuTelefone').innerText=telefone;
+  const auth=JSON.parse(localStorage.getItem('bolao_auth'));
+  nomeCliente=auth.nome || '';
+  telefoneCliente=auth.telefone;
+
+  document.getElementById('meuNome').innerText=nomeCliente;
+  document.getElementById('meuTelefone').innerText=telefoneCliente;
 
   carregarParticipantes();
   carregarPalpites();
+}
+
+/* ===== MONITOR DE ACESSO ===== */
+function iniciarMonitor(){
+  if(monitor) clearInterval(monitor);
+
+  monitor=setInterval(()=>{
+    fetch(`${API_URL}?action=validateAccess&telefone=${encodeURIComponent(telefoneCliente)}`)
+    .then(r=>r.json())
+    .then(data=>{
+      if(!data.authorized){
+        derrubarSessao();
+      }
+    });
+  },10000);
+}
+
+/* ===== DERRUBAR SESSÃO ===== */
+function derrubarSessao(){
+  localStorage.removeItem('bolao_auth');
+  alert('🚫 Seu acesso ao bolão foi removido pelo administrador.');
+  location.reload();
 }
 
 /* ===== PARTICIPANTES ===== */
