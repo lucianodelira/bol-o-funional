@@ -170,16 +170,25 @@ function verificarPagamento(paymentId){
       if(data.status === 'PAID'){
         clearInterval(check);
 
+        // Salva autenticação
         localStorage.setItem('bolao_auth', JSON.stringify({
           nome:nomeCliente,
           telefone:telefoneCliente
         }));
 
+        // Toca som de sucesso
         document.getElementById('successSound').play();
-        validarAcessoInicial();
+
+        // Dá um pequeno delay para a planilha "respirar" e propagar o 'ATIVO'
+        setTimeout(() => {
+          validarAcessoInicial();
+        }, 3000);   // 3 segundos de espera – pode testar com 2000 ou 4000
       }
+    })
+    .catch(err => {
+      console.error('Erro na verificação:', err);
     });
-  },5000);
+  }, 5000);
 }
 
 /* ===== ENTRAR NA SALA ===== */
